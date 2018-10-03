@@ -1,0 +1,183 @@
+
+\documentclass[11pt, pdftex]{article}
+\usepackage{epsf}
+\usepackage{epsfig}
+\usepackage{times}
+\usepackage{ifthen}
+\usepackage{comment}
+\usepackage{amsfonts}
+\usepackage[margin=1in]{geometry}
+
+
+\title{Cryptographic Notions for Data Structures}
+\author{David Clayton}
+
+
+\begin{document}
+\maketitle
+
+\section{Overview}
+
+There are several specific notions of security for various structures, intended for specific applications like querying a set of ciphertexts for word membership or preserving the ordering of encrypted text. Despite the variety, it seems that each of these lacks the generality necessary to deal with our own focus on potentially probabilistic data structures. Usually the syntax is incompatible, but beyond that it seems that most authors do not consider the case of adversaries attempting to induce false positives in a data structure representation. Other than the recent Naor \& Yogev paper, none have a correctness notion allowing a non-negligible probability of error; in fact, most disallow any non-zero probability of error. Because of this, none of the previous papers considered correctness from a security perspective, with an adversary attempting to induce errors in the representation of the data set.
+
+\section{Symmetric Encryption}
+
+It is often desirable to be able to search, operate on, or otherwise manipulate encrypted data without having to decrypt it. One of the classic examples of this phenomena is {\em searchable symmtetric encryption}, which allows querying of ciphertexts. Often this involves some notion of a data structure, as in Curtmoa et al's 2006 paper \cite{sse} which uses a document model to talk about security concepts for SSE. Specifically, there is a dictionary $\Delta = \{w_1, \ldots, w_d\}$ of words and comprising each of a collection $\mathcal{D} \subseteq 2^\Delta$ of documents.
+
+The authors define a SSE scheme as a 4-tuple of polynomial-time algorithms:
+
+\begin{itemize}
+	\item $K \gets^\$$ Keygen($1^k$) which takes the security parameter $k$ as input and probabilistically outputs a polynomial-length private key $K$.
+	\item $\mathcal{I} \gets^\$$ BuildIndex($K,\mathcal{D}$) which takes a private key $K$ and polynomial-length document collection $\mathcal{D}$ and probabilistically outputs a polynomial-length index $\mathcal{I}$.
+	\item $T_w \gets$ Trapdoor($K,w$) which takes a private key $K$ and word $w$ and outputs a trapdoor $T_w$ for that word.
+	\item $\mathcal{D}(w) \gets$ Search($\mathcal{I},T_w$) which takes an index $\mathcal{I}$ for a collection $\mathcal{D}$ and a trapdoor $T_w$ for a word $w$ and outputs the set of IDs for documents containing $w$.
+\end{itemize}
+
+This model assumes an honest-but-curious server, and presents both non-adaptive and adaptive notions of security. As with many later examples, we first choose a leakage which is acceptable for the adversary to see. We then conduct an experiment where a probabilistic polynomial-time adversary is given access to the index and the leakage function, and may make queries for various words. If it cannot distinguish between the indices of two different document collections with probability non-negligibly greater than $\frac{1}{2}$, the SSE scheme is secure. In the non-adaptive case the adversary makes all decisions in advance, while in the adaptive case the adversary can use the previous tokens generated and query results received to determine its new queries; the two notions are otherwise identical.
+
+While this definition does not work syntactically with our idea of Bloom filters and similar data structures, which do not use the Trapdoor scheme, this is similar to some of the other papers in that it considers an honest-but-curious server trying to gain access to information beyond some acceptable leakage (here called {\em trace}). One of the interesting points of this paper is that it introduces a notion of multi-user SSE, which augments the above definition with two additional functions. Here we use $N$ to denote the set of all possible users and $G \subseteq N$ the set of users currently authorized to search the database:
+
+\begin{itemize}
+	\item $K_U \gets$ AddUser($K,U$) which takes the original secret key $K$ used to build the index and a new user $U$ as input and outputs a key $K_U$ for the new user while also adding $U$ to $G$. When Trapdoor is run with $K_U$, it must produce a valid token $T_{U,w}$, but this need not be the same as any other user's token.
+	\item RevokeUser($K,U$) which takes the original secret key $K$ used to build the index and a user $U$ as input and removes $U$ from $G$ (producing no output).
+\end{itemize}
+
+It is required that the Search function return $\bot$ when provided with $K_U$ if $U \not\in G$, but otherwise the security notion is much the same as in the original case where only the creator of the index (or someone else with the creator's secret key) can search it. The authors also give a correctness notion for this multi-user case, namely that $\mathrm{Pr}(U \in G : \mathrm{Search}(\mathcal{I}_\mathcal{D},T_{U,w}) = \mathcal{D}(w)) = 1$. This sort of extension could potentially be applied to other notions where multiple users are authorized to query an encrypted structure.
+
+An example of a different take on symmetric encryption which preserves a useful property is given in Boldyreva et al 2009 \cite{opse}. Preserving the ordering of data is of interest because it allows efficient range queries, so this paper considers {\em order-preserving symmetric encryption}. Their syntax includes a key space $\mathcal{K}$, a plaintext space $\mathcal{D}$, and a ciphertext space $\mathcal{R}$. An OPSE scheme is a triple of three algorithms:
+
+\begin{itemize}
+	\item $K \gets^\$ \mathcal{K}(1^k)$ takes a security parameter $k$ as input and probabilistically outputs a secret key $K$.
+	\item $c \gets^\$ \mathrm{Enc}(K,m)$ takes a secret key $K$ and plaintext $m$ as input and probabilistically outputs a ciphertext $c$.
+	\item $m \gets \mathrm{Dec}(K,c)$ takes a secret key $K$ and ciphertext $c$ as input and outputs a plaintext $m$ or the symbol $\bot$ to indicate an invalid ciphertext.
+\end{itemize}
+
+Despite including probabilistic notions in their syntax, they restrict their consideration to encryption functions which are deterministic and (for a fixed choice of $K$) order-preserving. In this case the ordinary mathematical notion of {\em order-preserving} is used, i.e. $f(i) > f(j)$ iff $i > j$. For this purpose we interpret the plaintext and ciphertext as natural numbers which encode strings. The correctness notion is the usual cryptographic requirement that $\forall K \gets^\$ \mathcal{K}(1^k), \forall m \in \mathcal{D}, \mathrm{Dec}(K,\mathrm{Enc}(K,m)) = m$.
+
+Because of the deterministic nature of such a scheme, some information like plaintext equality will necessarily be leaked. The security notion therefore considers the scheme's distinguishability compared to a randomly chosen order-preserving (deterministic) function. Specifically, the authors define the advantage of an adversary $A$ against an order-preserving encryption scheme $\mathcal{SE}$ as
+
+$$\mathrm{Pr}(K \gets^\$ \mathcal{K} : A^{\mathrm{Enc}(K,\cdot),\mathrm{Dec}(K,\cdot)} = 1) - \mathrm{Pr}(g \gets^\$ \mathrm{OPF}_{\mathcal{D},\mathcal{R}} : A^{g(\cdot),g^{-1}(\cdot)} = 1)$$
+
+\noindent where $\mathrm{OPF}_{\mathcal{D},\mathcal{R}}$ is the set of all order-preserving functions $f: \mathcal{D} \to \mathcal{R}$. If this advantage is small for all adversaries, the sceme is considered secure.
+
+While this is an interesting case of placing restrictions on how data can be encrypted, the authors acknowledge some uncertainty in what is actually included as acceptable leakage by this definition. A scheme satisfying the above security notion necessarily leaks no more information than a random order-preserving function, but it is not immediately obvious exactly what information is leaked by a random order-preserving function. This is a useful example case where a leakage guarantee can be undermined by uncertainty about what exactly the leakage includes.
+
+\section{Structured Encryption}
+
+Chase \& Kamara \cite{str_enc} introduced the general notion of {\em structured encryption}. The goal is to encrypt the data in such a way that the server cannot read it, but so that it can be efficiently queried by someone who holds the secret key.
+
+The authors consider strucutred data to be a data structure $\delta$ encoding a sequence of data items $\mathbf{M} = ((m_1,v_1), \ldots, (m_n,v_n))$, where $\delta$ can be queried to receive a set $I$ of pointers such that $\{(m_i,v_i)\}_{i \in I}$ is the desired data. The intuition here is that the $m_i$ are intended to be fully private and should not be leaked to an adversary, while the $v_i$ are merely `semi-private' and are acceptable to leak when an appropriate query is made.
+
+Structured encryption works by taking such a pair $(\delta,\mathbf{M})$ as input and producing an encrypted data structure $\gamma$ and a sequence $\mathbf{c} = (c_1, \ldots, c_n)$ of ciphertexts. Using the private key, the client can construct a token $\tau$ which can be used to query $\gamma$ for a set of pointers to elements of $\mathbf{c}$. The private key can then be used to decrypt the appropriate $\{c_i\}_{i \in I}$. Note that it is not required that a specific $m_i$ is sent to the corresponding $c_i$ by the encryption process. The permutation sending each $i \in [n]$ to the corresponding $j \in [n]$ so that $c_j$ decrypts to $m_i$ is referred to as $\pi$.
+
+For a security notion, the authors want to guarantee that the output pair $(\gamma, \mathbf{c})$ reveals no information about $\mathbf{m}$ and that sequences of tokens $(\tau_1, \ldots, \tau_t)$ leak no more information about $\mathbf{m}$ or the queries represented by the tokens than what is given by some leakage function.
+
+Chase \& Kamara use the term {\em abstract data type} to to refer to a universe $\mathcal{U} = \{\mathcal{U}_k\}_{k \in \mathbb{N}}$ together with an operation Query $: \mathcal{U} \times \mathcal{Q} \to \mathcal{R}$ for some query space $\mathcal{Q} = \{\mathcal{Q}_k\}_{k \in \mathbb{N}}$ and response space $\mathcal{R} = \{\mathcal{R}_k\}_{k \in \mathbb{N}}$. Each of the universe, query, and response spaces are families of finite sets, where $k$ is interpreted as a security parameter. In the paper it is further assumed that $\mathcal{R} = [n]$ for each $n \in \mathbf{N}$.
+
+Formally, an {\em associative private-key structured encryption scheme} for an abstract data type $\mathcal{T}$ is a 5-tuple of polynomial-time algorithms:
+\begin{itemize}
+	\item $K \gets^\$$ Gen($1^k$) which takes the security parameter $k$ as input and probabilistically outputs a private key $K$.
+	\item $(\gamma, \mathbf{c}) \gets^\$$ Enc($K,\delta,\mathbf{M}$) which takes a private key $K$, a data structure $\delta$ of type $\mathcal{T}$, and a data sequence $\mathbf{M}$ as input and probabilistically outputs an encrypted data structure $\gamma$ and $\mathbf{c}$.
+	\item $\tau \gets^\$$ Token($K,q$) which takes a private key $K$ and query $q \in \mathcal{Q}$ as input and probabilistically outputs a token $\tau$.
+	\item $(J,\mathbf{v}_I) \gets$ $\mathrm{Query}_e(\gamma,\tau)$ which takes an encrypted data structure $\gamma$ and token $\tau$ as input and outputs a set of pointers $J \subseteq [n]$ and a sequence of data $\mathbf{v}_I = (v_i)_{i \in I}$ where $J = \pi(I)$.
+	\item $m_j \gets$ Dec($K,c_j$) which takes a private key $K$ and ciphertext $c_j$ as input and outputs a message $m_j$.
+\end{itemize}
+
+Here, the $\mathbf{v}_i$ represents semi-private data which is considered acceptable leakage. The correctness notion for such a structured encryption scheme is:
+
+$$\forall k \in \mathbf{N}, \forall K \gets \mathrm{Gen}(1^k), \forall \delta \in \mathcal{U}_k, \forall \mathbf{M}, \forall (\gamma, \mathbf{c}) \gets \mathrm{Enc}(K,\delta,\mathbf{M}), \forall q \in \mathcal{Q}_k, \forall \tau \gets \mathrm{Token}(K,q),$$
+$$\forall (J, \mathbf{v}_I) \gets \mathrm{Query}_e(\gamma,\tau), (J = \pi(\mathrm{Query}(\delta,q)) \land (\forall j \in [n], \mathrm{Dec}_K(c_j) = m_j)$$
+
+The security notion used is based on two experiments, and requires the specification of two distinct types of leakage. The first, $\mathcal{L}_1(\delta,\mathbf{M})$, represents the information leaked by the ciphertexts produced by the Enc function, while $\mathcal{L}_2(\delta,q)$ represents the information leaked by the tokens produced by the Token function.
+\begin{itemize}
+	\item $\mathbf{Real}_{\Sigma,\mathcal{A}}(k)$ gives the adversary access to an oracle for the encryption and token operations. The adversary must first call the oracle with a pair $(\delta,\mathbf{M})$, receiving as output $(\gamma,\mathbf{c}) \gets \mathrm{Enc}(K,\delta,\mathbf{M})$ where $K$ is produced by Gen($1^k$). The adversary may then make polynomially many additional calls to the oracle, supplying it with a query $q$ and receiving $\tau \gets \mathrm{Token}(K,q)$. After this, the adversary outputs a single bit which is the result of the experiment.
+	\item $\mathbf{Ideal}_{\Sigma,\mathcal{A},\mathcal{S}}(k)$ is the same, but the oracle merely simulates the encryption and token functions using some simulator $\mathcal{S}$. When the adversary makes the initial encryption request, the oracle gives $\mathcal{L}_1(\delta,\mathbf{M})$ to $\mathcal{S}$ and returns some $(\gamma,\mathbf{c})$ produced by the simulator. When further calls are made with queries $q$, the oracle gives $(\mathcal{L}_2(\delta,q),\mathbf{v}_I)$ to $\mathcal{S}$, where $I \gets \mathbf{Query}(\delta,q)$, and returns some $\tau$ produced by the simulator.
+\end{itemize}
+
+\subsection{Kamara, Moataz, \& Ohrimenko}
+
+This paper\cite{str_enc_leak} builds up the notion of a structured encryption scheme using a middle-man: encryption schemes take data structures as arguments, and data structures are themselves a representation of objects from an abstract data type. These {\em abstract data types} consist of an object space $\mathbb{D} = \{\mathbb{D}_k\}_{k \in \mathbb{N}}$, a query space $\mathbb{Q} = \{\mathbb{Q}_k\}_{k \in \mathbb{N}}$, a response space $\mathbb{R} = \{\mathbb{R}_k\}_{k \in \mathbb{N}}$, an update space $\mathbb{U} = \{\mathbb{U}_k\}_{k \in \mathbb{N}}$, a query map $\mathbf{qu}: \mathbb{D} \times \mathbb{Q} \to \mathbb{R}$ and an update map $\mathbf{up}: \mathbb{D} \times \mathbb{U} \to \mathbb{D}$.
+
+The notion of a {\em data structure} is a representation of data objects in some computational model, such as the word RAM. Data structures are part of a {\em structuring scheme} which has notions of correctness but not security. A structuring scheme is a triple of polynomial-time algorithms:
+\begin{itemize}
+	\item DS $\gets^\$$ Setup($d$) which takes a data object $d \in \mathbb{D}$ as input and probabilistically outputs a data structure DS.
+	\item $r \gets$ Query(DS, $q$) which takes a data structure DS and query $q \in \mathbb{Q}$ and outputs a response $r \in \mathbb{R}$.
+	\item DS $\gets^\$$ Update(DS, $u$) which takes a data structure DS and update $u \in \mathbb{U}$ and probabilistically outputs a new data structure DS.
+\end{itemize}
+
+On the other hand, a {\em type-$\mathbf{T}$ interactive structured encryption scheme} is a 4-tuple containing one algorithm and three two-party protocols:
+\begin{itemize}
+	\item $(K,st,\mathrm{EDS}) \gets^\$$ Setup($1^k,\lambda,$ DS) which takes the security parameter $k$, the query capacity $\lambda$, and a structure DS of type $\mathbf{T}$ and outputs a private key $K$, a state $st$, and an encrypted structure EDS.
+	\item $((st',r),\bot) \gets^\$ \mathrm{Query}_{\mathbf{C},\mathbf{S}}((K,st,q),\mathrm{EDS})$ which is a probabilistic(!) protocol where the client inputs a secret key $K$, a state $st$, and a query $q$, the server inputs an encrypted data structure EDS, and the client receives a new state $st'$ and response $r$ while the server receives $\bot$.
+	\item $(st',\mathrm{EDS}') \gets^\$ \mathrm{Update}_{\mathbf{C},\mathbf{S}}((K,st,u),\mathrm{EDS})$ which is a probabilistic protocol where the client inputs a secret key $K$, a state $st$, and an update $u$, the server inputs an encrypted data structure EDS, and the client receives a new state $st'$ while the server receives a new encrypted structure $\mathrm{EDS}'$.
+	\item $((st',K'),\mathrm{EDS}') \gets^\$ \mathrm{Rebuild}_{\mathbf{C},\mathbf{S}}((K,st),\mathrm{EDS})$ which is a probabilistic protocol where the client inputs a secret key $K$ and a state $st$, the server inputs an encrypted data structure EDS, and the client receives a new state $st'$ and key $K'$ while the server receives a new encrypted structure $\mathrm{EDS}'$.
+\end{itemize}
+
+The notation $\equiv$ is used to denote that some combination of data objects, data structures, and encrypted data structures are `the same' despite their syntactic differences. Specifically, a data structure DS is said to {\em instantiate} a data object $d$, abbreviated DS $\equiv d$, if $\forall q \in \mathbb{Q}, \mathrm{Query}(\mathrm{DS},q) = \mathbf{qu}(d,q)$. An encrypted structure EDS is said to instantiate a data object $d$, or EDS $\equiv d$, if $\forall q \in \mathbb{Q}, ((st',\mathbf{qu}(d,q)),\bot)$ is the output of $\mathrm{Query}_{\mathbf{C},\mathbf{S}}((K,st,q),\mathrm{EDS})$, where $K$ and $st$ are assumed to be the correct key and state for the EDS. Finally, the notation EDS $\equiv$ DS is used to indicate that the two instantiate the same data object, i.e. that $\forall q \in \mathbb{Q}, ((st',\mathrm{Query}(\mathrm{DS},q)),\bot)$ is the output of $\mathrm{Query}_{\mathbf{C},\mathbf{S}}((K,st,q),\mathrm{EDS})$ given that $K$ and $st$ are the correct key and state of EDS.
+
+The correctness notion given for an encryption scheme consists of simultaneously satisfying three properties:
+\begin{itemize}
+	\item Static correctness: $\forall k \in \mathbb{N}, \forall d \in \mathbb{D}, \forall \mathrm{DS} \equiv d, \forall \lambda \ge 1, \mathrm{Pr}((K,st,\mathrm{EDS}) \gets \mathrm{Setup}(1^k, \lambda, \mathrm{DS}) : \mathrm{EDS} \equiv \mathrm{DS}) \ge 1 - \mathrm{negl}(k)$.
+	\item Dynamic correctness: $\forall k \in \mathbb{N}, \forall d \in \mathbb{D}, \forall \mathrm{EDS} \equiv d, \forall u \in \mathbb{U}, \mathrm{Pr}((st,\mathrm{EDS}') \gets \mathrm{Update}((K,st,u),\mathrm{EDS}) : \mathrm{EDS}' \equiv \mathbf{up}(d,u)) \ge 1 - \mathrm{negl}(k)$ given that $K$ and $st$ are the key and state corresponding to the EDS.
+	\item Rebuild correctness: $\forall k \in \mathbb{N}, \forall d \in \mathbb{D}, \forall \mathrm{EDS} \equiv d, \mathrm{Pr}(((st,K'),\mathrm{EDS}') \gets \mathrm{Rebuild}((K,st),\mathrm{EDS}) : \mathrm{EDS}' \equiv d) \ge 1 - \mathrm{negl}(k)$ given that $K$ and $st$ are the key and state corresponding to the EDS.
+\end{itemize}
+
+Security is again defined through experiments testing whether an adversary can distinguish a real challenger from a simulated one. We define a leakage profile as a tuple $(\mathrm{patt}_{\mathrm{St}},\mathrm{patt}_{\mathrm{Qr}},\mathrm{patt}_{\mathrm{Up}},\mathrm{patt}_{\mathrm{Rb}})$ of leakage functions associated with each of the functions and protocols. The two experiments are defined as follows:
+\begin{itemize}
+	\item $\mathbf{Real}_{\mathrm{STE},\mathcal{A}}(k)$ gives the adversary an oracle for each of the algorithms and protocols. The adversary takes an arbitrary advice string $z \in \{0,1\}^*$ and the query capacity $\lambda$. It must first call the oracle with a structure DS, and receives the EDS produced by Setup($1^k,\lambda$, DS); the oracle stores $K$ and $st$ but does not return them. The adversary may then make polynomially many additional oracle calls, providing operations which may be any combination of query operations (for some $q \in \mathbb{Q}$), update operations (for some $u \in \mathbb{U}$), and rebuild operations. In each case the oracle proceeds to act as the client and carry out the relevant protocol with the adversarial server, and after all operations are completed the adversary outputs a single bit which is the result of the experiment.
+	\item $\mathbf{Ideal}_{\mathrm{STE},\mathcal{A},\mathcal{S}}(k)$ is the same except for a change in the oracle. The initial Setup call is replaced with a call to the simulator, with $\mathcal{S}$ receiving only $\mathrm{patt}_{\mathrm{St}}(\mathrm{DS})$ as input. Upon each further call, the oracle carries out the protocol corresponding to the specified operation, but with its actions determined by $\mathcal{S}$, which is only given access to the leakage of the operation ($\mathrm{patt}_{\mathrm{Qr}}(\mathrm{DS},q)$, $\mathrm{patt}_{\mathrm{Up}}(\mathrm{DS},u)$, or $\mathrm{patt}_{\mathrm{Rb}}(\mathrm{DS})$).
+\end{itemize}
+
+Security is obtained if $\exists \mathcal{S}, \forall \mathcal{A}, \forall \lambda \ge 1, \forall z \in \{0,1\}^*, |\mathrm{Pr}(\mathbf{Real}_{\mathrm{STE},\mathcal{A}}(k) = 1) - \mathrm{Pr}(\mathbf{Ideal}_{\mathrm{STE},\mathcal{A},\mathcal{S}}(k) = 1)| \le \mathrm{negl}(k)$, where consideration is limited to probabilistic polynomial-time $\mathcal{S}$ and $\mathcal{A}$.
+
+This fails to match up with our desired notions in multiple ways. First, the syntax of Setup involves data structures rather than data objects. If we assume data objects are themselves valid data structures (albeit unoptimized ones), this is not much of an issue. More significant is that the notion of instantiation does not allow for error in the way we would like. While a negligible probability is allowed for EDS $\not\equiv$ DS in the definition of static correctness, for a probabilistic structure like a Bloom filter this is insufficient: {\em any} Bloom filter with sufficiently many elements will have false positives and therefore fails to instantiate (i.e. return the correct query result for all inputs) the underlying set of elements.
+
+Brief mention is made of some variants to this syntax, and it is these which are of the most interest. In particular, response-revealing schemes with the alternate syntax $(st,r) \gets^\$ \mathrm{Query}_{\mathbf{C},\mathbf{S}}((K,st,q),\mathrm{EDS})$ are briefly mentioned, and seem to correspond more closely to the use cases we are considering.
+
+\section{Bloom Filters}
+
+Naor \& Yogev \cite{bf} consider Bloom filters specifically, or at least Bloom-filter-like structures.
+
+The authors define a Bloom filter for a universe $U$ to be an ordered pair of polynomial time algorithms:
+
+\begin{itemize}
+	\item $R \gets^\$ \mathbf{B}_1(S,1^k)$ which takes a set $S$ and security parameter $k$ as input and probabilistically outputs a representation $R$.
+	\item $b \gets \mathbf{B}_2(R,x)$ which takes a representation $R$ and element $x \in U$ as input and outputs a single bit.
+\end{itemize}
+
+To be a $(n,\epsilon)$-Bloom filter the authors require the structure be both {\em complete} ($\forall S \subseteq U$ of size $n, \forall x \in S, \mathrm{Pr}(\mathbf{B}_2(\mathbf{B}_1(S),x) = 1) = 1$) and {\em sound} ($\forall S \subseteq U$ of size $n, \forall x \not\in S, \mathrm{Pr}(\mathbf{B}_2(\mathbf{B}_1(S),x) = 1) \le \epsilon$).
+
+For dealing with an adversary, they consider the following adversarial game $\mathrm{Challenge}_{A,t,S}(k)$ for a probabilistic polynomial-time adversary $A$, natural numbers $t$ and $k$, and set $S$. First, $M$ is computed from $\mathbf{B}_1(S,1^k)$. The adversary is given $k$, $S$, and an oracle for $\mathbf{B}_2$ which can be used to query $M$ for elements $(x_1,\ldots,x_t)$. The adversary outputs a single $x^* \in U$; the result of the game is 1 if $x^* \not\in S \cup \{x_1,\ldots,x_t\}$ but $\mathbf{B}_2(M,x^*) = 1$, and 0 otherwise.
+
+The authors define $(n,t,\epsilon)$-adversarial resilient Bloom filters to be those such that $\forall S$ of size $n, \exists m \in \mathbb{N}, \forall k > m, \forall A, \mathrm{Pr}(\mathrm{Challenge}_{A,t,S}(k) = 1) \le \epsilon$.
+
+Interestingly, the authors also give a notion of an {\em unsteady representation} of a Bloom filter, where $\mathbf{B}_2$ is randomized and can potentially change the representation. This results in a change to the syntax with $(M,b) \gets^\$ \mathbf{B}_2(R,x)$, where $M$ is a new representation. The same correctness notions are used, but for security an interface $b \gets^\$ Q(M,x)$ is introduced. In this case $Q$ simply calls $\mathbf{B}_2(M,x)$ and returns the $b$ given by $\mathbf{B}_2$. Instead of being provided with an oracle for $\mathbf{B}_2$, the adversary is provided only with $Q$.
+
+While the authors spend much of their time considering unsteady representations, the ordinary (steady) representations of Bloom filters are provided with meaningful correctness and security notions and some of the results given also apply to ordinary Bloom filters. There is a slight limitation in their semantics because they consider the adversary successful if they generate even a single false positive, while in some applications it may suffice to simply keep the number of false positives sufficiently low. More significantly, the notion of general information leakage, where the adversary uses queries to recover additional information about the underlying set, is not considered.
+
+\begin{thebibliography}{9}
+\bibitem{sse}
+Reza Curtmola, Seny Kamara, Juan Garay, and Rafail Ostrovsky.
+Searchable Symmetric Encryption: Improved Definitions and Efficient Constructions.
+\textit{CCS '06}.
+
+\bibitem{opse}
+Alexandra Boldyreva, Nathan Chenette, Younho Lee, and Adam O'Neill.
+Order-Preserving Symmetric Encryption.
+\textit{EUROCRYPT 2009}, LNCS 5479, pages 224-241.
+
+\bibitem{str_enc}
+Melissa Chase and Seny Kamara.
+Structured Encryption and Controlled Disclosure.
+\textit{ASIACRYPT 2010}, LNCS 6477, pages 577-594.
+
+\bibitem{str_enc_leak}
+Seny Kamara, Tarik Moataz, and Olya Ohrimenko.
+Structured Encryption and Leakage Supression.
+
+\bibitem{bf}
+Moni Naor \& Eylon Yogev
+Bloom Filters in Adversarial Environments.
+CRYPTO (2) 2015, pages 565-584.
+\end{thebibliography}
+\end{document}
